@@ -179,7 +179,7 @@ class Board(tk.Tk):
             else:
                 self.rows[i]["eta"].config(text="—")
                 self.rows[i]["time"].config(text="—")
-                self.rows[i]["dest"].config(text="No further trains via Charing Cross")
+                self.rows[i]["dest"].config(text="No further trains")
 
 if __name__ == "__main__":
     Board().mainloop()
