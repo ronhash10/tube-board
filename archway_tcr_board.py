@@ -172,6 +172,9 @@ class Board(tk.Tk):
         self.footer = tk.Label(self, text="Last updated —", font=self.font_foot, fg="#7CFC00", bg="black")
         self.footer.pack(pady=(0, 10))
 
+        self.attributes("-fullscreen", True)
+        self.bind("<Escape>", lambda e: self.destroy())  # Press Esc to exit if needed
+
         # Start loop
         self.after(200, self.refresh_loop)
 
