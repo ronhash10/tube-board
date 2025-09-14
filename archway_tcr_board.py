@@ -82,24 +82,24 @@ def fetch_bus_rows():
 class Board(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("NORTHERN — Archway → Tottenham Court")
+        self.title("Archway Departures")
         self.configure(bg="black")
 
-        # Run fullscreen and make Tk DPI predictable
+        # Fullscreen + stable DPI
         self.attributes("-fullscreen", True)
         try:
             self.tk.call("tk", "scaling", 1.0)
         except Exception:
             pass
-        self.bind("<Escape>", lambda e: self.destroy())  # handy during testing
+        self.bind("<Escape>", lambda e: self.destroy())
 
-        # --- screen-aware font sizes (good for 1280x720) ---
+        # Screen-aware font sizes (tuned for 1280x720)
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-        size_l = max(36, int(sh * 0.075))          # large rows + banner
-        size_m = max(22, int(size_l * 0.60))       # column headers + button
-        size_s = max(16, int(size_l * 0.42))       # footer
+        size_l = max(36, int(sh * 0.070))      # row text
+        size_h = max(40, int(sh * 0.080))      # section headers
+        size_m = max(22, int(size_l * 0.60))   # column headers
+        size_s = max(16, int(size_l * 0.42))   # footer
 
-        # pick a pixel/mono font if present
         families = {f.lower(): f for f in tkfont.families(self)}
         if "vt323" in families:
             fam = families["vt323"]
@@ -108,113 +108,117 @@ class Board(tk.Tk):
         else:
             fam = families.get("dejavu sans mono", "DejaVu Sans Mono")
 
-        self.font_h1   = (fam, size_l, "bold")
+        self.font_h1   = (fam, size_h, "bold")
         self.font_col  = (fam, size_m, "bold")
         self.font_row  = (fam, size_l, "bold")
         self.font_foot = (fam, size_s)
 
-        # mode: "tube" or "bus"
-        self.mode = "tube"
+        # Outer container with bezel padding
+        root = tk.Frame(self, bg="black")
+        root.pack(fill="both", expand=True, padx=24, pady=16)
 
-        # ----- outer container with padding -----
-        container = tk.Frame(self, bg="black")
-        container.pack(fill="both", expand=True, padx=24, pady=16)
+        # Shared column sizing
+        self.sw = sw
+        self.COL0_PX = max(140, int(sw * 0.16))  # DUE
+        self.COL1_PX = max(120, int(sw * 0.14))  # TIME
 
-        # ===== Banner with Toggle =====
-        self.hdr = tk.Frame(container, bg="black")
-        self.hdr.pack(fill="x", pady=(0, 12))
-
-        self.lbl_line  = tk.Label(self.hdr, text="NORTHERN", font=self.font_h1, fg="#FFD100", bg="black")
-        self.lbl_route = tk.Label(self.hdr, text="Archway → Tottenham Court", font=self.font_h1, fg="#FFD100", bg="black")
-        self.lbl_line.pack(side="left")
-        tk.Label(self.hdr, text="   ", font=self.font_h1, fg="#FFD100", bg="black").pack(side="left")
-        self.lbl_route.pack(side="left")
-
-        self.toggle_btn = tk.Button(
-            self.hdr, text="Bus 41", relief="ridge",
-            font=self.font_col, fg="#000000", bg="#FFD100",
-            activeforeground="#000000", activebackground="#FFC700",
-            command=self.toggle_mode
+        # ---- Section A: Tube (NORTHERN) ----
+        self._section(
+            parent=root,
+            title_left="NORTHERN",
+            title_right="Archway → Tottenham Court Road",
+            table_key="tube"
         )
-        self.toggle_btn.pack(side="right")
 
-        # ===== Table (headers + rows) =====
-        self.table = tk.Frame(container, bg="black")
-        self.table.pack(fill="both", expand=True)
+        # Spacer between sections
+        tk.Frame(root, bg="black", height=10).pack(fill="x")
 
-        # DUE/TIME fixed-ish; DEST expands to right edge
-        COL0_PX = max(140, int(sw * 0.16))  # DUE
-        COL1_PX = max(120, int(sw * 0.14))  # TIME
-        self.table.grid_columnconfigure(0, minsize=COL0_PX)
-        self.table.grid_columnconfigure(1, minsize=COL1_PX)
-        self.table.grid_columnconfigure(2, weight=1)      # DEST grows
+        # ---- Section B: Bus 41 ----
+        self._section(
+            parent=root,
+            title_left="BUS 41",
+            title_right="Archway → Tottenham Hale Bus Station",
+            table_key="bus"
+        )
 
-        # headers
-        hdr_due  = tk.Label(self.table, text="DUE",         anchor="w", font=self.font_col, fg="#7CFC00", bg="black")
-        hdr_time = tk.Label(self.table, text="TIME",        anchor="w", font=self.font_col, fg="#7CFC00", bg="black")
-        hdr_dest = tk.Label(self.table, text="DESTINATION", anchor="w", font=self.font_col, fg="#7CFC00", bg="black")
-        hdr_due.grid( row=0, column=0, sticky="w")
-        hdr_time.grid(row=0, column=1, sticky="w", padx=(16, 0))
-        hdr_dest.grid(row=0, column=2, sticky="we", padx=(32, 0))  # stretch header too
-
-        # rows
-        self.rows = []
-        for i in range(3):
-            eta  = tk.Label(self.table, text="--",    anchor="w", font=self.font_row, fg="#FFD100", bg="black")
-            tim  = tk.Label(self.table, text="--:--", anchor="w", font=self.font_row, fg="#FFD100", bg="black")
-            des  = tk.Label(self.table, text="—",     anchor="w", font=self.font_row, fg="#FFD100", bg="black")
-            eta.grid(row=i+1, column=0, sticky="w")
-            tim.grid(row=i+1, column=1, sticky="w", padx=(16, 0))
-            des.grid(row=i+1, column=2, sticky="we", padx=(32, 0))  # key: "we" so it expands
-            des.configure(wraplength=0)  # never wrap; let it clip
-            self.rows.append({"eta": eta, "time": tim, "dest": des})
-
-        # footer
-        self.footer = tk.Label(container, text="Last updated —", font=self.font_foot, fg="#7CFC00", bg="black")
+        # Footer
+        self.footer = tk.Label(root, text="Last updated —", font=self.font_foot, fg="#7CFC00", bg="black")
         self.footer.pack(pady=(8, 0))
 
-        # Start loop
+        # Refresh loop
         self.after(200, self.refresh_loop)
 
-    # ----- Toggle -----
-    def toggle_mode(self):
-        self.mode = "bus" if self.mode == "tube" else "tube"
-        if self.mode == "bus":
-            self.lbl_line.config(text="BUS 41")
-            self.lbl_route.config(text="Archway → Tottenham Hale")
-            self.toggle_btn.config(text="Tube")
+    def _section(self, parent, title_left, title_right, table_key):
+        # Banner
+        hdr = tk.Frame(parent, bg="black")
+        hdr.pack(fill="x", pady=(0, 8))
+        tk.Label(hdr, text=title_left,  font=self.font_h1, fg="#FFD100", bg="black").pack(side="left")
+        tk.Label(hdr, text="   ",       font=self.font_h1, fg="#FFD100", bg="black").pack(side="left")
+        tk.Label(hdr, text=title_right, font=self.font_h1, fg="#FFD100", bg="black").pack(side="left")
+
+        # Table
+        table = tk.Frame(parent, bg="black")
+        table.pack(fill="both", expand=True)
+
+        table.grid_columnconfigure(0, minsize=self.COL0_PX)
+        table.grid_columnconfigure(1, minsize=self.COL1_PX)
+        table.grid_columnconfigure(2, weight=1)
+
+        hdr_due  = tk.Label(table, text="DUE",         anchor="w", font=self.font_col, fg="#7CFC00", bg="black")
+        hdr_time = tk.Label(table, text="TIME",        anchor="w", font=self.font_col, fg="#7CFC00", bg="black")
+        hdr_dest = tk.Label(table, text="DESTINATION", anchor="w", font=self.font_col, fg="#7CFC00", bg="black")
+        hdr_due.grid( row=0, column=0, sticky="w")
+        hdr_time.grid(row=0, column=1, sticky="w", padx=(16, 0))
+        hdr_dest.grid(row=0, column=2, sticky="we", padx=(32, 0))
+
+        rows = []
+        for i in range(3):
+            eta  = tk.Label(table, text="--",    anchor="w", font=self.font_row, fg="#FFD100", bg="black")
+            tim  = tk.Label(table, text="--:--", anchor="w", font=self.font_row, fg="#FFD100", bg="black")
+            des  = tk.Label(table, text="—",     anchor="w", font=self.font_row, fg="#FFD100", bg="black")
+            eta.grid(row=i+1, column=0, sticky="w")
+            tim.grid(row=i+1, column=1, sticky="w", padx=(16, 0))
+            des.grid(row=i+1, column=2, sticky="we", padx=(32, 0))
+            des.configure(wraplength=0)
+            rows.append({"eta": eta, "time": tim, "dest": des})
+
+        # Store handle for updates
+        if table_key == "tube":
+            self.tube_rows = rows
         else:
-            self.lbl_line.config(text="NORTHERN")
-            self.lbl_route.config(text="Archway → Tottenham Court")
-            self.toggle_btn.config(text="Bus 41")
-        self.refresh_now()
+            self.bus_rows = rows
 
-    # ----- Refresh loop -----
-    def refresh_now(self):
-        try:
-            preds = fetch_tube_rows() if self.mode == "tube" else fetch_bus_rows()
-            self.update_rows(preds)
-            self.footer.config(text=f"Last updated {datetime.now().strftime('%H:%M:%S')}")
-        except Exception as e:
-            self.rows[0]["dest"].config(text=f"Error: {e}")
-
+    # -------- Refresh logic --------
     def refresh_loop(self):
         def work():
-            self.refresh_now()
+            try:
+                tube = fetch_tube_rows()
+            except Exception as e:
+                tube = [{"eta": "—", "time": "—", "dest": f"TfL error: {e}"}]
+            try:
+                bus = fetch_bus_rows()
+            except Exception as e:
+                bus = [{"eta": "—", "time": "—", "dest": f"TfL error: {e}"}]
+
+            self.after(0, lambda: self.update_section(self.tube_rows, tube))
+            self.after(0, lambda: self.update_section(self.bus_rows,  bus))
+            self.after(0, lambda: self.footer.config(text=f"Last updated {datetime.now().strftime('%H:%M:%S')}"))
+
             self.after(REFRESH_SEC * 1000, self.refresh_loop)
+
         threading.Thread(target=work, daemon=True).start()
 
-    def update_rows(self, preds):
+    def update_section(self, row_widgets, preds):
         for i in range(3):
             if i < len(preds):
                 r = preds[i]
-                self.rows[i]["eta"].config(text=r["eta"])
-                self.rows[i]["time"].config(text=r["time"])
-                self.rows[i]["dest"].config(text=r["dest"])
+                row_widgets[i]["eta"].config(text=r["eta"])
+                row_widgets[i]["time"].config(text=r["time"])
+                row_widgets[i]["dest"].config(text=r["dest"])
             else:
-                self.rows[i]["eta"].config(text="—")
-                self.rows[i]["time"].config(text="—")
-                self.rows[i]["dest"].config(text="No further services")
+                row_widgets[i]["eta"].config(text="—")
+                row_widgets[i]["time"].config(text="—")
+                row_widgets[i]["dest"].config(text="No further services")
 
 if __name__ == "__main__":
     Board().mainloop()
